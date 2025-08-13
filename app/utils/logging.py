@@ -27,16 +27,28 @@ class StructuredFormatter(logging.Formatter):
         if record.exc_info:
             log_entry["exception"] = self.formatException(record.exc_info)
         
-        # Add extra fields if present
+        # Add extra fields if present (excluding private keys and 'context' which we flatten later)
         for key, value in record.__dict__.items():
             if key not in {
                 'name', 'msg', 'args', 'levelname', 'levelno', 'pathname',
                 'filename', 'module', 'lineno', 'funcName', 'created',
                 'msecs', 'relativeCreated', 'thread', 'threadName',
                 'processName', 'process', 'getMessage', 'exc_info',
-                'exc_text', 'stack_info'
+                'exc_text', 'stack_info', 'context', '_log_ctx'
             } and not key.startswith('_'):
                 log_entry[key] = value
+        
+        # Safely flatten context dictionaries into top-level fields (without overwriting)
+        def _merge_context(ctx: Dict[str, Any]) -> None:
+            if isinstance(ctx, dict):
+                for k, v in ctx.items():
+                    if k not in log_entry:
+                        log_entry[k] = v
+        
+        # Merge from private log context set by LogContext
+        _merge_context(getattr(record, '_log_ctx', {}))
+        # Merge from standard 'context' if used via log_with_context
+        _merge_context(getattr(record, 'context', {}))
         
         return json.dumps(log_entry, default=str)
 
@@ -93,24 +105,15 @@ class LogContext:
     def __enter__(self):
         def record_factory(*args, **kwargs):
             record = self.old_factory(*args, **kwargs)
-            for key, value in self.context.items():
-                try:
-                    # Check if attribute already exists
-                    if hasattr(record, key):
-                        existing_value = getattr(record, key)
-                        if existing_value is None:
-                            # Only set if existing value is None
-                            setattr(record, key, value)
-                        elif existing_value == value:
-                            # Same value, no need to set again
-                            continue
-                        # If different value exists, skip to avoid overwrite error
-                    else:
-                        # Attribute doesn't exist, safe to set
-                        setattr(record, key, value)
-                except (AttributeError, TypeError):
-                    # If we can't set the attribute, skip it silently
-                    pass
+            try:
+                # Store context in a private container to avoid collisions with 'extra' keys
+                existing_ctx = getattr(record, '_log_ctx', {})
+                if not isinstance(existing_ctx, dict):
+                    existing_ctx = {}
+                merged_ctx = {**existing_ctx, **self.context}
+                setattr(record, '_log_ctx', merged_ctx)
+            except Exception:
+                pass
             return record
         
         logging.setLogRecordFactory(record_factory)

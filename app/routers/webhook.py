@@ -272,7 +272,9 @@ async def process_message_async(webhook_data: TwilioWebhookData, get_service_fun
                 date_service=date_service,
                 iata_resolver=iata_resolver,
                 search_strategy=search_strategy,
-                formatter=formatter
+                formatter=formatter,
+                memory=get_service_func("memory"),
+                summarizer=get_service_func("summarizer")
             )
             
             # Determine message content and modality

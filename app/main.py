@@ -38,6 +38,10 @@ async def lifespan(app: FastAPI):
         services["twilio"] = TwilioClient()
         services["s3"] = S3MediaService()
         services["dynamodb"] = DynamoDBRepository()
+        # Shared in-memory conversation buffer and summarizer
+        from .agents.memory import ConversationMemory, ConversationSummarizer
+        services["memory"] = ConversationMemory(services["dynamodb"], window_size=10)
+        services["summarizer"] = ConversationSummarizer(services["openai"], max_messages=20)
         
         logger.info("All services initialized successfully")
         

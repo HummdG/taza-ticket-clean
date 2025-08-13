@@ -64,7 +64,9 @@ class FlightAgentGraph:
         date_service: DateParsingService,
         iata_resolver: IATAResolver,
         search_strategy: SearchStrategy,
-        formatter: ItineraryFormatter
+        formatter: ItineraryFormatter,
+        memory: Optional[ConversationMemory] = None,
+        summarizer: Optional[ConversationSummarizer] = None
     ):
         self.openai_service = openai_service
         self.dynamodb_service = dynamodb_service
@@ -76,9 +78,9 @@ class FlightAgentGraph:
         self.search_strategy = search_strategy
         self.formatter = formatter
         
-        # Initialize memory and context management
-        self.memory = ConversationMemory(dynamodb_service, window_size=10)
-        self.summarizer = ConversationSummarizer(openai_service, max_messages=20)
+        # Initialize memory and context management (use shared instances if provided)
+        self.memory = memory if memory is not None else ConversationMemory(dynamodb_service, window_size=10)
+        self.summarizer = summarizer if summarizer is not None else ConversationSummarizer(openai_service, max_messages=20)
         self.context_manager = ContextManager(self.memory, self.summarizer)
         
         # Initialize transition policies
@@ -212,14 +214,7 @@ class FlightAgentGraph:
         
         try:
             # Load conversation data
-            conversation_data = await self.dynamodb_service.get_conversation(user_id)
-            if not conversation_data:
-                conversation_data = ConversationData(
-                    user_id=user_id,
-                    slots=Slots(),
-                    messages=[],
-                    state=ConversationState.INITIAL
-                )
+            conversation_data = await self.memory.get_or_create_conversation(user_id)
             
             # Detect language if not already set
             detected_language = await self.openai_service.detect_language(user_message)
@@ -285,9 +280,11 @@ class FlightAgentGraph:
                 media_url=response_media_url
             )
             final_state["conversation_data"].messages.append(assistant_msg)
-            
-            # Save updated conversation
-            await self.dynamodb_service.save_conversation(final_state["conversation_data"])
+            # Keep the cached ConversationData in sync for this user
+            self.memory.set_conversation(final_state["conversation_data"])
+            # Update in-memory context and flush to DynamoDB only when threshold is reached
+            await self.context_manager.update_context(state["user_id"], state["user_message"], final_state.get("response_text", ""))
+            await self.memory.flush_and_summarize_if_needed(state["user_id"], self.summarizer)
             
             logger.info(f"Agent processing completed: {target_modality}")
             
@@ -322,12 +319,7 @@ class FlightAgentGraph:
             
             logger.info(f"Query reformulated: {reformulated.intent} (confidence: {confidence:.2f})")
             
-            # Update context with reformulation
-            await self.context_manager.update_context(
-                state["user_id"], 
-                state["user_message"], 
-                f"[Reformulated: {reformulated.intent}]"
-            )
+            # No-op: do not push reformulation text as a separate message to memory
             
             # Return only the updated fields
             updates = {

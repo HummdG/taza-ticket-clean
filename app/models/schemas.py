@@ -113,6 +113,8 @@ class ConversationData(BaseModel):
     last_modality: Optional[MessageModality] = None
     last_completed_search: Optional[str] = None  # Hash of search parameters
     last_itinerary_summary: Optional[str] = None
+    # New: summarized conversation context persisted to DynamoDB instead of full history
+    conversation_summary: Optional[str] = None
     state_version: int = 1
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)

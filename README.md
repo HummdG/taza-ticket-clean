@@ -251,6 +251,25 @@ The agent automatically detects and responds in these languages:
 - Ranges: "12th-16th August", "March 15-20"
 - Monthly: "September 2025", "cheapest in September"
 
+## Agent Structure
+
+graph TD
+START([User Message]) --> A[reformulate]
+A --> B{Decision}
+B -->|Need Slots| C[fill_slots]
+B -->|Ready| D[plan_search]
+C --> D[plan_search]
+D --> E{Decision}
+E -->|Search| F[run_search]
+E -->|Clarify| G[clarify]
+E -->|Respond| H[respond]
+F --> I{Decision}
+I -->|Summarize| J[summarize]
+I -->|Respond| H[respond]
+J --> H[respond]
+G --> END([End])
+H --> END([End])
+
 ## Monitoring and Logging
 
 ### Health Checks

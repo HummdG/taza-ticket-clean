@@ -284,6 +284,29 @@ class FlightAgentGraph:
             final_state["conversation_data"].messages.append(assistant_msg)
             # Keep the cached ConversationData in sync for this user
             self.memory.set_conversation(final_state["conversation_data"])
+            # Structured conversation logging (user input, assistant reply, recent history)
+            try:
+                recent_history = []
+                for m in final_state["conversation_data"].messages[-10:]:
+                    recent_history.append({
+                        "role": m.role,
+                        "modality": m.modality.value if hasattr(m.modality, "value") else str(m.modality),
+                        "content": (m.content[:300] + "…") if len(m.content) > 300 else m.content
+                    })
+                logger.info(
+                    "Conversation log",
+                    extra={
+                        "user_id": state["user_id"],
+                        "language": final_state["conversation_data"].language,
+                        "modality": target_modality.value if hasattr(target_modality, "value") else str(target_modality),
+                        "user_input": (state["user_message"][:500] + "…") if len(state["user_message"]) > 500 else state["user_message"],
+                        "assistant_reply": (final_state.get("response_text", "")[:500] + "…") if len(final_state.get("response_text", "")) > 500 else final_state.get("response_text", ""),
+                        "history_count": len(final_state["conversation_data"].messages),
+                        "recent_history": recent_history
+                    }
+                )
+            except Exception:
+                pass
             # Update in-memory context and flush to DynamoDB only when threshold is reached
             await self.context_manager.update_context(state["user_id"], state["user_message"], final_state.get("response_text", ""))
             await self.memory.flush_and_summarize_if_needed(state["user_id"], self.summarizer)

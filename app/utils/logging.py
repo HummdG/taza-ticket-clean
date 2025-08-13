@@ -94,7 +94,13 @@ class LogContext:
         def record_factory(*args, **kwargs):
             record = self.old_factory(*args, **kwargs)
             for key, value in self.context.items():
-                setattr(record, key, value)
+                try:
+                    # Only set if attribute doesn't exist or is None
+                    if not hasattr(record, key) or getattr(record, key) is None:
+                        setattr(record, key, value)
+                except (AttributeError, TypeError):
+                    # If we can't set the attribute, skip it silently
+                    pass
             return record
         
         logging.setLogRecordFactory(record_factory)

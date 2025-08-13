@@ -2,7 +2,7 @@
 LangGraph flight agent for processing user messages and orchestrating flight search
 """
 
-from typing import Dict, Any, Tuple, Optional
+from typing import Dict, Any, Tuple, Optional, TypedDict, List
 from datetime import datetime
 
 from langgraph.graph import StateGraph, END
@@ -16,8 +16,24 @@ from ..models.schemas import (
     ConversationState,
     Slots,
     QueryReformulatorInput,
+    QueryReformulatorOutput,
+    Itinerary,
     TripType
 )
+
+
+class AgentStateDict(TypedDict):
+    """TypedDict version of AgentState for LangGraph"""
+    user_id: str
+    user_message: str
+    conversation_data: ConversationData
+    reformulated_query: Optional[QueryReformulatorOutput]
+    search_results: Optional[List[Itinerary]]
+    response_text: Optional[str]
+    response_audio_url: Optional[str]
+    should_search: bool
+    needs_clarification: bool
+    clarification_question: Optional[str]
 from ..services.openai_io import OpenAIService
 from ..services.travelport import TravelportService
 from ..services.twilio_client import TwilioClient
@@ -75,7 +91,7 @@ class FlightAgentGraph:
         """Build the LangGraph state graph"""
         
         # Create state graph
-        workflow = StateGraph(AgentState)
+        workflow = StateGraph(AgentStateDict)
         
         # Add nodes
         workflow.add_node("reformulate", self._reformulate_query_node)
@@ -136,7 +152,7 @@ class FlightAgentGraph:
         
         return workflow.compile()
     
-    def _decide_after_reformulate(self, state: Dict[str, Any]) -> NodeDecision:
+    def _decide_after_reformulate(self, state: AgentStateDict) -> NodeDecision:
         """Decision function after reformulate node"""
         # Convert dict to AgentState for policy decisions
         agent_state = AgentState(**state)
@@ -144,28 +160,28 @@ class FlightAgentGraph:
         self.transition_conditions.log_transition_decision("reformulate", decision, agent_state)
         return decision
     
-    def _decide_after_fill_slots(self, state: Dict[str, Any]) -> NodeDecision:
+    def _decide_after_fill_slots(self, state: AgentStateDict) -> NodeDecision:
         """Decision function after fill_slots node"""
         agent_state = AgentState(**state)
         decision = self.transition_conditions.next_node_after_fill_slots(agent_state)
         self.transition_conditions.log_transition_decision("fill_slots", decision, agent_state)
         return decision
     
-    def _decide_after_plan_search(self, state: Dict[str, Any]) -> NodeDecision:
+    def _decide_after_plan_search(self, state: AgentStateDict) -> NodeDecision:
         """Decision function after plan_search node"""
         agent_state = AgentState(**state)
         decision = self.transition_conditions.next_node_after_plan_search(agent_state)
         self.transition_conditions.log_transition_decision("plan_search", decision, agent_state)
         return decision
     
-    def _decide_after_search(self, state: Dict[str, Any]) -> NodeDecision:
+    def _decide_after_search(self, state: AgentStateDict) -> NodeDecision:
         """Decision function after run_search node"""
         agent_state = AgentState(**state)
         decision = self.transition_conditions.next_node_after_search(agent_state)
         self.transition_conditions.log_transition_decision("run_search", decision, agent_state)
         return decision
     
-    def _decide_after_summarize(self, state: Dict[str, Any]) -> NodeDecision:
+    def _decide_after_summarize(self, state: AgentStateDict) -> NodeDecision:
         """Decision function after summarize node"""
         agent_state = AgentState(**state)
         decision = self.transition_conditions.next_node_after_summarize(agent_state)
@@ -221,8 +237,8 @@ class FlightAgentGraph:
             conversation_data.messages.append(user_msg)
             conversation_data.last_modality = input_modality
             
-            # Create agent state as dictionary for LangGraph
-            state = {
+            # Create agent state as TypedDict for LangGraph
+            state: AgentStateDict = {
                 "user_id": user_id,
                 "user_message": user_message,
                 "conversation_data": conversation_data,
@@ -284,7 +300,7 @@ class FlightAgentGraph:
             fallback_message = self._get_fallback_response(detected_language if 'detected_language' in locals() else "en")
             return fallback_message, MessageModality.TEXT, None
     
-    async def _reformulate_query_node(self, state: Dict[str, Any]) -> Dict[str, Any]:
+    async def _reformulate_query_node(self, state: AgentStateDict) -> Dict[str, Any]:
         """Reformulate user query to extract travel intent"""
         
         logger.info("Reformulating user query")
@@ -331,7 +347,7 @@ class FlightAgentGraph:
                 "reformulated_query": None
             }
     
-    async def _fill_slots_node(self, state: Dict[str, Any]) -> Dict[str, Any]:
+    async def _fill_slots_node(self, state: AgentStateDict) -> Dict[str, Any]:
         """Fill travel booking slots from reformulated query"""
         
         logger.info("Filling travel slots")
@@ -415,7 +431,7 @@ class FlightAgentGraph:
         
         return updates
     
-    async def _plan_search_node(self, state: Dict[str, Any]) -> Dict[str, Any]:
+    async def _plan_search_node(self, state: AgentStateDict) -> Dict[str, Any]:
         """Determine if we should search and what clarification is needed"""
         
         logger.info("Planning search strategy")
@@ -459,7 +475,7 @@ class FlightAgentGraph:
                     "should_search": False
                 }
     
-    async def _run_search_node(self, state: Dict[str, Any]) -> Dict[str, Any]:
+    async def _run_search_node(self, state: AgentStateDict) -> Dict[str, Any]:
         """Execute flight search based on slots"""
         
         logger.info("Running flight search")
@@ -508,7 +524,7 @@ class FlightAgentGraph:
                 "search_results": []
             }
     
-    async def _generate_clarification_node(self, state: Dict[str, Any]) -> Dict[str, Any]:
+    async def _generate_clarification_node(self, state: AgentStateDict) -> Dict[str, Any]:
         """Generate clarification question for missing information"""
         
         logger.info("Generating clarification response")
@@ -538,7 +554,7 @@ class FlightAgentGraph:
             "conversation_data": conversation_data
         }
     
-    async def _generate_response_node(self, state: Dict[str, Any]) -> Dict[str, Any]:
+    async def _generate_response_node(self, state: AgentStateDict) -> Dict[str, Any]:
         """Generate final response with search results or other content"""
         
         logger.info("Generating final response")
@@ -592,7 +608,7 @@ class FlightAgentGraph:
                 "response_text": "I apologize, but I encountered an issue while processing your request. Please try again."
             }
     
-    async def _summarize_results_node(self, state: Dict[str, Any]) -> Dict[str, Any]:
+    async def _summarize_results_node(self, state: AgentStateDict) -> Dict[str, Any]:
         """Summarize search results for presentation"""
         
         logger.info("Summarizing search results")

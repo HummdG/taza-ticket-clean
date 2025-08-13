@@ -407,7 +407,6 @@ class TransitionConditions:
         logger.info(
             f"Graph transition: {current_node} -> {next_decision}",
             extra={
-                "user_id": state.user_id,
                 "current_node": current_node,
                 "next_node": next_decision,
                 "reason": reason,

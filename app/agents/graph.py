@@ -136,34 +136,40 @@ class FlightAgentGraph:
         
         return workflow.compile()
     
-    def _decide_after_reformulate(self, state: AgentState) -> NodeDecision:
+    def _decide_after_reformulate(self, state: Dict[str, Any]) -> NodeDecision:
         """Decision function after reformulate node"""
-        decision = self.transition_conditions.next_node_after_reformulate(state)
-        self.transition_conditions.log_transition_decision("reformulate", decision, state)
+        # Convert dict to AgentState for policy decisions
+        agent_state = AgentState(**state)
+        decision = self.transition_conditions.next_node_after_reformulate(agent_state)
+        self.transition_conditions.log_transition_decision("reformulate", decision, agent_state)
         return decision
     
-    def _decide_after_fill_slots(self, state: AgentState) -> NodeDecision:
+    def _decide_after_fill_slots(self, state: Dict[str, Any]) -> NodeDecision:
         """Decision function after fill_slots node"""
-        decision = self.transition_conditions.next_node_after_fill_slots(state)
-        self.transition_conditions.log_transition_decision("fill_slots", decision, state)
+        agent_state = AgentState(**state)
+        decision = self.transition_conditions.next_node_after_fill_slots(agent_state)
+        self.transition_conditions.log_transition_decision("fill_slots", decision, agent_state)
         return decision
     
-    def _decide_after_plan_search(self, state: AgentState) -> NodeDecision:
+    def _decide_after_plan_search(self, state: Dict[str, Any]) -> NodeDecision:
         """Decision function after plan_search node"""
-        decision = self.transition_conditions.next_node_after_plan_search(state)
-        self.transition_conditions.log_transition_decision("plan_search", decision, state)
+        agent_state = AgentState(**state)
+        decision = self.transition_conditions.next_node_after_plan_search(agent_state)
+        self.transition_conditions.log_transition_decision("plan_search", decision, agent_state)
         return decision
     
-    def _decide_after_search(self, state: AgentState) -> NodeDecision:
+    def _decide_after_search(self, state: Dict[str, Any]) -> NodeDecision:
         """Decision function after run_search node"""
-        decision = self.transition_conditions.next_node_after_search(state)
-        self.transition_conditions.log_transition_decision("run_search", decision, state)
+        agent_state = AgentState(**state)
+        decision = self.transition_conditions.next_node_after_search(agent_state)
+        self.transition_conditions.log_transition_decision("run_search", decision, agent_state)
         return decision
     
-    def _decide_after_summarize(self, state: AgentState) -> NodeDecision:
+    def _decide_after_summarize(self, state: Dict[str, Any]) -> NodeDecision:
         """Decision function after summarize node"""
-        decision = self.transition_conditions.next_node_after_summarize(state)
-        self.transition_conditions.log_transition_decision("summarize", decision, state)
+        agent_state = AgentState(**state)
+        decision = self.transition_conditions.next_node_after_summarize(agent_state)
+        self.transition_conditions.log_transition_decision("summarize", decision, agent_state)
         return decision
     
     async def process_message(
@@ -278,7 +284,7 @@ class FlightAgentGraph:
             fallback_message = self._get_fallback_response(detected_language if 'detected_language' in locals() else "en")
             return fallback_message, MessageModality.TEXT, None
     
-    async def _reformulate_query_node(self, state: AgentState) -> AgentState:
+    async def _reformulate_query_node(self, state: Dict[str, Any]) -> Dict[str, Any]:
         """Reformulate user query to extract travel intent"""
         
         logger.info("Reformulating user query")
@@ -290,41 +296,51 @@ class FlightAgentGraph:
             reformulator = QueryReformulator(self.openai_service)
             
             reformulator_input = QueryReformulatorInput(
-                user_message=state.user_message,
-                conversation_history=state.conversation_data.messages[-5:],  # Last 5 messages
-                current_slots=state.conversation_data.slots
+                user_message=state["user_message"],
+                conversation_history=state["conversation_data"].messages[-5:],  # Last 5 messages
+                current_slots=state["conversation_data"].slots
             )
             
             # Use the enhanced reformulator with confidence scoring
             reformulated, confidence = await reformulator.reformulate_with_confidence(reformulator_input)
-            state.reformulated_query = reformulated
             
             logger.info(f"Query reformulated: {reformulated.intent} (confidence: {confidence:.2f})")
             
             # Update context with reformulation
             await self.context_manager.update_context(
-                state.user_id, 
-                state.user_message, 
+                state["user_id"], 
+                state["user_message"], 
                 f"[Reformulated: {reformulated.intent}]"
             )
             
-            return state
+            # Return only the updated fields
+            updates = {
+                "reformulated_query": reformulated
+            }
+            
+            # If the reformulated query suggests clarification is needed, pass that along
+            if reformulated.needs_clarification and reformulated.clarification_question:
+                updates["needs_clarification"] = True
+                updates["clarification_question"] = reformulated.clarification_question
+            
+            return updates
             
         except Exception as e:
             logger.warning(f"Query reformulation failed: {str(e)}")
-            state.reformulated_query = None
-            return state
+            return {
+                "reformulated_query": None
+            }
     
-    async def _fill_slots_node(self, state: AgentState) -> AgentState:
+    async def _fill_slots_node(self, state: Dict[str, Any]) -> Dict[str, Any]:
         """Fill travel booking slots from reformulated query"""
         
         logger.info("Filling travel slots")
         
-        current_slots = state.conversation_data.slots
+        current_slots = state["conversation_data"].slots
         updated = False
         
-        if state.reformulated_query:
-            query = state.reformulated_query
+        if state.get("reformulated_query"):
+            query = state["reformulated_query"]
             
             # Update slots with new information
             if query.from_city_name and query.from_city_name != current_slots.from_city:
@@ -391,18 +407,20 @@ class FlightAgentGraph:
                 updated = True
         
         # Update conversation state
+        updates = {}
         if updated:
-            state.conversation_data.state = ConversationState.COLLECTING_SLOTS
+            state["conversation_data"].state = ConversationState.COLLECTING_SLOTS
             logger.info("Slots updated from user message")
+            updates["conversation_data"] = state["conversation_data"]
         
-        return state
+        return updates
     
-    async def _plan_search_node(self, state: AgentState) -> AgentState:
+    async def _plan_search_node(self, state: Dict[str, Any]) -> Dict[str, Any]:
         """Determine if we should search and what clarification is needed"""
         
         logger.info("Planning search strategy")
         
-        slots = state.conversation_data.slots
+        slots = state["conversation_data"].slots
         
         # Check if we have minimum required information
         missing_slots = []
@@ -420,28 +438,34 @@ class FlightAgentGraph:
             missing_slots.append("return date")
         
         if missing_slots:
-            state.needs_clarification = True
-            state.clarification_question = f"I need more information about your trip. Please provide: {', '.join(missing_slots)}."
+            clarification_question = f"I need more information about your trip. Please provide: {', '.join(missing_slots)}."
             logger.info(f"Missing slots: {missing_slots}")
+            return {
+                "needs_clarification": True,
+                "clarification_question": clarification_question
+            }
         else:
             # Check if search parameters have changed
             current_search_hash = self.travelport_service.get_search_hash(slots)
             
-            if current_search_hash != state.conversation_data.last_completed_search:
-                state.should_search = True
+            if current_search_hash != state["conversation_data"].last_completed_search:
                 logger.info("Search needed - parameters changed")
+                return {
+                    "should_search": True
+                }
             else:
                 logger.info("Using cached search results")
-        
-        return state
+                return {
+                    "should_search": False
+                }
     
-    async def _run_search_node(self, state: AgentState) -> AgentState:
+    async def _run_search_node(self, state: Dict[str, Any]) -> Dict[str, Any]:
         """Execute flight search based on slots"""
         
         logger.info("Running flight search")
         
         try:
-            slots = state.conversation_data.slots
+            slots = state["conversation_data"].slots
             
             # Route to appropriate search strategy
             if slots.date_search_type == "exact":
@@ -464,113 +488,126 @@ class FlightAgentGraph:
             
             # Limit results and sort by price
             limited_itineraries = self.search_strategy.get_cheapest_itineraries(itineraries, limit=3)
-            state.search_results = limited_itineraries
             
             # Update conversation state
-            state.conversation_data.state = ConversationState.PRESENTING_RESULTS
+            conversation_data = state["conversation_data"]
+            conversation_data.state = ConversationState.PRESENTING_RESULTS
             search_hash = self.travelport_service.get_search_hash(slots)
-            state.conversation_data.last_completed_search = search_hash
+            conversation_data.last_completed_search = search_hash
             
             logger.info(f"Search completed: {len(limited_itineraries)} results")
             
+            return {
+                "search_results": limited_itineraries,
+                "conversation_data": conversation_data
+            }
+            
         except Exception as e:
             logger.error(f"Flight search failed: {str(e)}")
-            state.search_results = []
-        
-        return state
+            return {
+                "search_results": []
+            }
     
-    async def _generate_clarification_node(self, state: AgentState) -> AgentState:
+    async def _generate_clarification_node(self, state: Dict[str, Any]) -> Dict[str, Any]:
         """Generate clarification question for missing information"""
         
         logger.info("Generating clarification response")
         
-        if state.clarification_question:
-            response_text = state.clarification_question
+        if state.get("clarification_question"):
+            response_text = state["clarification_question"]
         else:
             response_text = "I need more information to help you find flights. Could you please provide your origin, destination, and travel date?"
         
         # Use OpenAI to make it more natural and in the right language
         try:
             formatted_response = await self.openai_service.generate_response(
-                conversation_history=state.conversation_data.messages,
+                conversation_history=state["conversation_data"].messages,
                 response_content=response_text,
-                target_language=state.conversation_data.language or "en",
-                target_modality=state.conversation_data.last_modality or MessageModality.TEXT
+                target_language=state["conversation_data"].language or "en",
+                target_modality=state["conversation_data"].last_modality or MessageModality.TEXT
             )
-            state.response_text = formatted_response
+            response_text = formatted_response
         except Exception as e:
             logger.warning(f"Response formatting failed: {str(e)}")
-            state.response_text = response_text
         
-        state.conversation_data.state = ConversationState.CLARIFYING
+        conversation_data = state["conversation_data"]
+        conversation_data.state = ConversationState.CLARIFYING
         
-        return state
+        return {
+            "response_text": response_text,
+            "conversation_data": conversation_data
+        }
     
-    async def _generate_response_node(self, state: AgentState) -> AgentState:
+    async def _generate_response_node(self, state: Dict[str, Any]) -> Dict[str, Any]:
         """Generate final response with search results or other content"""
         
         logger.info("Generating final response")
         
         try:
-            if state.search_results:
+            conversation_data = state["conversation_data"]
+            
+            if state.get("search_results"):
                 # Format search results
                 formatted_results = self.formatter.format_multiple_options(
-                    state.search_results,
-                    modality=state.conversation_data.last_modality or MessageModality.TEXT,
+                    state["search_results"],
+                    modality=conversation_data.last_modality or MessageModality.TEXT,
                     max_options=3
                 )
                 
                 # Store itinerary summary
-                state.conversation_data.last_itinerary_summary = formatted_results[:500]  # Truncate for storage
+                conversation_data.last_itinerary_summary = formatted_results[:500]  # Truncate for storage
                 
             else:
                 # No results found
                 search_criteria = {
-                    "from": state.conversation_data.slots.from_city,
-                    "to": state.conversation_data.slots.to_city,
-                    "date": state.conversation_data.slots.date,
-                    "passengers": str(state.conversation_data.slots.passengers or 1)
+                    "from": conversation_data.slots.from_city,
+                    "to": conversation_data.slots.to_city,
+                    "date": conversation_data.slots.date,
+                    "passengers": str(conversation_data.slots.passengers or 1)
                 }
                 
                 formatted_results = self.formatter.format_no_results(
                     search_criteria,
-                    modality=state.conversation_data.last_modality or MessageModality.TEXT
+                    modality=conversation_data.last_modality or MessageModality.TEXT
                 )
             
             # Generate natural response using OpenAI
             final_response = await self.openai_service.generate_response(
-                conversation_history=state.conversation_data.messages,
+                conversation_history=conversation_data.messages,
                 response_content=formatted_results,
-                target_language=state.conversation_data.language or "en",
-                target_modality=state.conversation_data.last_modality or MessageModality.TEXT
+                target_language=conversation_data.language or "en",
+                target_modality=conversation_data.last_modality or MessageModality.TEXT
             )
             
-            state.response_text = final_response
+            conversation_data.state = ConversationState.PRESENTING_RESULTS
+            
+            return {
+                "response_text": final_response,
+                "conversation_data": conversation_data
+            }
             
         except Exception as e:
             logger.error(f"Response generation failed: {str(e)}")
-            state.response_text = "I apologize, but I encountered an issue while processing your request. Please try again."
-        
-        state.conversation_data.state = ConversationState.PRESENTING_RESULTS
-        
-        return state
+            return {
+                "response_text": "I apologize, but I encountered an issue while processing your request. Please try again."
+            }
     
-    async def _summarize_results_node(self, state: AgentState) -> AgentState:
+    async def _summarize_results_node(self, state: Dict[str, Any]) -> Dict[str, Any]:
         """Summarize search results for presentation"""
         
         logger.info("Summarizing search results")
         
         try:
-            if state.search_results:
+            if state.get("search_results"):
                 # Get the best options
                 best_options = self.search_strategy.get_cheapest_itineraries(
-                    state.search_results, 
+                    state["search_results"], 
                     limit=3
                 )
                 
                 # Group by date if we have date range results
-                if state.conversation_data.slots.date_search_type in ["month", "range"]:
-                    date_groups = self.search_strategy.group_by_date(state.search_results)
+                if state["conversation_data"].slots.date_search_type in ["month", "range"]:
+                    date_groups = self.search_strategy.group_by_date(state["search_results"])
                     
                     # Find the best date option
                     if date_groups:
@@ -581,9 +618,6 @@ class FlightAgentGraph:
                         for itinerary in best_options:
                             if hasattr(itinerary, 'search_date') and itinerary.search_date == best_date:
                                 itinerary.is_recommended = True
-                
-                # Store summarized results
-                state.search_results = best_options
                 
                 # Create summary text
                 summary_parts = []
@@ -603,14 +637,21 @@ class FlightAgentGraph:
                     else:
                         summary_parts.append(f"All options are priced at {self.formatter.format_price(min_price, currency)}")
                 
-                state.summary_text = " ".join(summary_parts)
+                summary_text = " ".join(summary_parts)
                 logger.info(f"Generated summary for {len(best_options)} results")
+                
+                return {
+                    "search_results": best_options,
+                    "summary_text": summary_text
+                }
             
         except Exception as e:
             logger.error(f"Failed to summarize results: {str(e)}")
-            state.summary_text = "I found some flight options for you."
+            return {
+                "summary_text": "I found some flight options for you."
+            }
         
-        return state
+        return {}
     
     def _get_fallback_response(self, language: str) -> str:
         """Get fallback response for errors"""

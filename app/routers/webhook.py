@@ -59,6 +59,52 @@ async def webhook_root_post(
     )
 
 
+async def process_webhook_request_flexible(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    x_twilio_signature: Optional[str] = None
+):
+    """
+    Flexible webhook processing function that reads form data directly
+    """
+    try:
+        # Read form data directly
+        form = await request.form()
+        form_dict = dict(form)
+        
+        # Extract required parameters
+        MessageSid = form_dict.get("MessageSid")
+        AccountSid = form_dict.get("AccountSid") 
+        From = form_dict.get("From")
+        To = form_dict.get("To")
+        Body = form_dict.get("Body")
+        MediaUrl0 = form_dict.get("MediaUrl0")
+        MediaContentType0 = form_dict.get("MediaContentType0")
+        NumMedia = form_dict.get("NumMedia", "0")
+        
+        if not all([MessageSid, AccountSid, From, To]):
+            logger.error(f"Missing required parameters in webhook: {form_dict}")
+            raise HTTPException(status_code=400, detail="Missing required parameters")
+        
+        return await process_webhook_request(
+            request=request,
+            background_tasks=background_tasks,
+            MessageSid=MessageSid,
+            AccountSid=AccountSid,
+            From=From,
+            To=To,
+            Body=Body,
+            MediaUrl0=MediaUrl0,
+            MediaContentType0=MediaContentType0,
+            NumMedia=NumMedia,
+            x_twilio_signature=x_twilio_signature
+        )
+        
+    except Exception as e:
+        logger.error(f"Error processing flexible webhook: {str(e)}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
 async def process_webhook_request(
     request: Request,
     background_tasks: BackgroundTasks,

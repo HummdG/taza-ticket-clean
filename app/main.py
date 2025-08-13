@@ -124,31 +124,16 @@ app.include_router(webhook.router, prefix="/webhook", tags=["webhook"])
 async def webhook_direct(
     request: Request,
     background_tasks: BackgroundTasks,
-    MessageSid: str = Form(...),
-    AccountSid: str = Form(...),
-    From: str = Form(...),
-    To: str = Form(...),
-    Body: Optional[str] = Form(None),
-    MediaUrl0: Optional[str] = Form(None),
-    MediaContentType0: Optional[str] = Form(None),
-    NumMedia: str = Form("0"),
     x_twilio_signature: Optional[str] = Header(None, alias="X-Twilio-Signature")
 ):
     """
     Direct webhook endpoint to avoid redirects that break signature validation
+    Accepts all form data to handle various Twilio webhook formats
     """
-    from .routers.webhook import process_webhook_request
-    return await process_webhook_request(
+    from .routers.webhook import process_webhook_request_flexible
+    return await process_webhook_request_flexible(
         request=request,
         background_tasks=background_tasks,
-        MessageSid=MessageSid,
-        AccountSid=AccountSid,
-        From=From,
-        To=To,
-        Body=Body,
-        MediaUrl0=MediaUrl0,
-        MediaContentType0=MediaContentType0,
-        NumMedia=NumMedia,
         x_twilio_signature=x_twilio_signature
     )
 

@@ -164,8 +164,8 @@ class TwilioClient:
         try:
             logger.info(f"Downloading media from Twilio: {media_url}")
             
-            # Use httpx for async HTTP request
-            async with httpx.AsyncClient() as client:
+            # Use httpx for async HTTP request with redirect following
+            async with httpx.AsyncClient(follow_redirects=True) as client:
                 # Add Twilio authentication
                 auth = (settings.twilio_account_sid, settings.twilio_auth_token)
                 

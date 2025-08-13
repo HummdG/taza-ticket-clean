@@ -105,7 +105,7 @@ class DynamoDBRepository:
             
             # Query for the latest conversation entry for this user
             response = self.table.query(
-                KeyConditionExpression=Key('PK').eq(user_id),
+                KeyConditionExpression=Key('user_id').eq(user_id),
                 ScanIndexForward=False,  # Sort in descending order (latest first)
                 Limit=1
             )
@@ -142,9 +142,9 @@ class DynamoDBRepository:
             # Serialize for DynamoDB
             item = self._serialize_conversation_data(conversation_data)
             
-            # Add DynamoDB keys
-            item['PK'] = conversation_data.user_id  # Partition key
-            item['SK'] = conversation_data.updated_at.isoformat()  # Sort key
+            # Add DynamoDB keys to match table schema
+            item['user_id'] = conversation_data.user_id  # Partition key
+            item['sort_key'] = conversation_data.updated_at.isoformat()  # Sort key
             
             # Save to DynamoDB
             self.table.put_item(Item=item)
@@ -310,7 +310,7 @@ class DynamoDBRepository:
             logger.info(f"Retrieving conversation history for user: {user_id}, limit: {limit}")
             
             response = self.table.query(
-                KeyConditionExpression=Key('PK').eq(user_id),
+                KeyConditionExpression=Key('user_id').eq(user_id),
                 ScanIndexForward=False,  # Sort in descending order (latest first)
                 Limit=limit
             )
@@ -344,7 +344,7 @@ class DynamoDBRepository:
             
             # Get all entries for this user
             response = self.table.query(
-                KeyConditionExpression=Key('PK').eq(user_id)
+                KeyConditionExpression=Key('user_id').eq(user_id)
             )
             
             items = response.get('Items', [])

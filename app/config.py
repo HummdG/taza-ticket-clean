@@ -26,7 +26,7 @@ class Settings(BaseSettings):
     twilio_whatsapp_from: str  # e.g., "whatsapp:+14155238886"
     
     # AWS Configuration
-    aws_region: str = "us-east-1"
+    aws_region: str = "eu-north-1"
     aws_access_key_id: str
     aws_secret_access_key: str
     s3_bucket: str = "tazaticket"

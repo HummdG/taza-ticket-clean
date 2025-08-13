@@ -83,8 +83,10 @@ async def process_webhook_request_flexible(
         NumMedia = form_dict.get("NumMedia", "0")
         
         if not all([MessageSid, AccountSid, From, To]):
-            logger.error(f"Missing required parameters in webhook: {form_dict}")
-            raise HTTPException(status_code=400, detail="Missing required parameters")
+            logger.warning(f"Missing required parameters in webhook: {form_dict}")
+            # Return 200 OK for health checks or empty requests
+            from fastapi.responses import PlainTextResponse
+            return PlainTextResponse("OK")
         
         return await process_webhook_request(
             request=request,

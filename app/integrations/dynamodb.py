@@ -87,7 +87,21 @@ class DynamoDBRepository:
             if 'timestamp' in message and isinstance(message['timestamp'], str):
                 message['timestamp'] = datetime.fromisoformat(message['timestamp'])
         
-        return ConversationData(**item)
+        # Ensure required fields exist with defaults
+        if 'slots' not in item or item['slots'] is None:
+            from ..models.schemas import Slots
+            item['slots'] = Slots().dict()
+        
+        if 'messages' not in item or item['messages'] is None:
+            item['messages'] = []
+        
+        # Remove DynamoDB-specific keys that shouldn't be in ConversationData
+        item_clean = {k: v for k, v in item.items() if k not in ['user_id', 'sort_key']}
+        
+        # Re-add user_id as it's needed
+        item_clean['user_id'] = item['user_id']
+        
+        return ConversationData(**item_clean)
     
     async def get_conversation(self, user_id: str) -> Optional[ConversationData]:
         """

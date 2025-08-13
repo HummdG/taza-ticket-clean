@@ -1,0 +1,52 @@
+version: '3.8'
+
+services:
+  taza-ticket-agent:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      # Load from .env file
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - TRAVELPORT_CLIENT_ID=${TRAVELPORT_CLIENT_ID}
+      - TRAVELPORT_CLIENT_SECRET=${TRAVELPORT_CLIENT_SECRET}
+      - TRAVELPORT_USERNAME=${TRAVELPORT_USERNAME}
+      - TRAVELPORT_PASSWORD=${TRAVELPORT_PASSWORD}
+      - TRAVELPORT_ACCESS_GROUP=${TRAVELPORT_ACCESS_GROUP}
+      - TWILIO_ACCOUNT_SID=${TWILIO_ACCOUNT_SID}
+      - TWILIO_AUTH_TOKEN=${TWILIO_AUTH_TOKEN}
+      - TWILIO_WHATSAPP_FROM=${TWILIO_WHATSAPP_FROM}
+      - AWS_REGION=${AWS_REGION}
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - S3_BUCKET=${S3_BUCKET}
+      - DYNAMODB_TABLE_NAME=${DYNAMODB_TABLE_NAME}
+      - APP_TIMEZONE=${APP_TIMEZONE:-Europe/London}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    volumes:
+      # Mount source code for development (optional)
+      - ./app:/app/app:ro
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/healthz"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - taza-network
+
+  # Optional: Local DynamoDB for development
+  dynamodb-local:
+    image: amazon/dynamodb-local:latest
+    ports:
+      - "8001:8000"
+    command: ["-jar", "DynamoDBLocal.jar", "-sharedDb", "-inMemory"]
+    networks:
+      - taza-network
+    profiles:
+      - local-dev
+
+networks:
+  taza-network:
+    driver: bridge 

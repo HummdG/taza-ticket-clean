@@ -4,7 +4,8 @@ Main FastAPI application for TazaTicket flight agent
 
 import asyncio
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, HTTPException
+from typing import Optional
+from fastapi import FastAPI, HTTPException, Request, BackgroundTasks, Form, Header
 from fastapi.middleware.cors import CORSMiddleware
 
 from .config import settings
@@ -117,6 +118,47 @@ app.add_middleware(
 
 # Include routers
 app.include_router(webhook.router, prefix="/webhook", tags=["webhook"])
+
+# Add a direct route for webhook to avoid redirects
+@app.post("/webhook")
+async def webhook_direct(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    MessageSid: str = Form(...),
+    AccountSid: str = Form(...),
+    From: str = Form(...),
+    To: str = Form(...),
+    Body: Optional[str] = Form(None),
+    MediaUrl0: Optional[str] = Form(None),
+    MediaContentType0: Optional[str] = Form(None),
+    NumMedia: str = Form("0"),
+    x_twilio_signature: Optional[str] = Header(None, alias="X-Twilio-Signature")
+):
+    """
+    Direct webhook endpoint to avoid redirects that break signature validation
+    """
+    from .routers.webhook import process_webhook_request
+    return await process_webhook_request(
+        request=request,
+        background_tasks=background_tasks,
+        MessageSid=MessageSid,
+        AccountSid=AccountSid,
+        From=From,
+        To=To,
+        Body=Body,
+        MediaUrl0=MediaUrl0,
+        MediaContentType0=MediaContentType0,
+        NumMedia=NumMedia,
+        x_twilio_signature=x_twilio_signature
+    )
+
+@app.get("/webhook")
+async def webhook_verification_direct(request: Request):
+    """
+    Direct webhook verification endpoint
+    """
+    from .routers.webhook import whatsapp_webhook_verification
+    return await whatsapp_webhook_verification(request)
 
 
 @app.get("/healthz")

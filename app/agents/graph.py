@@ -218,7 +218,9 @@ class FlightAgentGraph:
             
             # Detect language if not already set
             detected_language = await self.openai_service.detect_language(user_message)
-            if not conversation_data.language:
+            if detected_language:
+                if conversation_data.language and conversation_data.language != detected_language:
+                    logger.info(f"Switching conversation language from {conversation_data.language} to {detected_language}")
                 conversation_data.language = detected_language
             
             # Add user message to conversation

@@ -215,24 +215,31 @@ class FlightAgentGraph:
             conversation_data.messages.append(user_msg)
             conversation_data.last_modality = input_modality
             
-            # Create agent state
-            state = AgentState(
-                user_id=user_id,
-                user_message=user_message,
-                conversation_data=conversation_data
-            )
+            # Create agent state as dictionary for LangGraph
+            state = {
+                "user_id": user_id,
+                "user_message": user_message,
+                "conversation_data": conversation_data,
+                "reformulated_query": None,
+                "search_results": None,
+                "response_text": None,
+                "response_audio_url": None,
+                "should_search": False,
+                "needs_clarification": False,
+                "clarification_question": None
+            }
             
             # Process through LangGraph
             final_state = await self.graph.ainvoke(state)
             
             # Generate audio if needed
             response_media_url = None
-            target_modality = final_state.conversation_data.last_modality
+            target_modality = final_state["conversation_data"].last_modality
             
-            if target_modality == MessageModality.VOICE and final_state.response_text:
+            if target_modality == MessageModality.VOICE and final_state.get("response_text"):
                 try:
                     audio_data = await self.openai_service.text_to_speech(
-                        final_state.response_text,
+                        final_state["response_text"],
                         voice="alloy"
                     )
                     response_media_url = await self.s3_service.upload_audio(
@@ -241,7 +248,7 @@ class FlightAgentGraph:
                         content_type="audio/mpeg",
                         file_extension="mp3"
                     )
-                    final_state.response_audio_url = response_media_url
+                    final_state["response_audio_url"] = response_media_url
                     logger.info("Generated TTS audio response")
                 except Exception as e:
                     logger.warning(f"TTS generation failed, falling back to text: {str(e)}")
@@ -250,19 +257,19 @@ class FlightAgentGraph:
             # Add assistant message to conversation
             assistant_msg = Message(
                 role="assistant",
-                content=final_state.response_text,
+                content=final_state.get("response_text", "Sorry, I encountered an issue processing your request."),
                 modality=target_modality,
                 language=conversation_data.language,
                 media_url=response_media_url
             )
-            final_state.conversation_data.messages.append(assistant_msg)
+            final_state["conversation_data"].messages.append(assistant_msg)
             
             # Save updated conversation
-            await self.dynamodb_service.save_conversation(final_state.conversation_data)
+            await self.dynamodb_service.save_conversation(final_state["conversation_data"])
             
             logger.info(f"Agent processing completed: {target_modality}")
             
-            return final_state.response_text, target_modality, response_media_url
+            return final_state.get("response_text", "Sorry, I encountered an issue processing your request."), target_modality, response_media_url
             
         except Exception as e:
             logger.error(f"Agent processing failed: {str(e)}")

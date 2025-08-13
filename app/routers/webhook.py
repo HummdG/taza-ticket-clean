@@ -376,13 +376,16 @@ async def whatsapp_webhook_verification(request: Request):
     
     logger.info(f"Webhook verification request: mode={hub_mode}")
     
-    # This is typically used for Facebook/Meta webhook verification
-    # For Twilio, this might not be needed, but keeping for compatibility
+    # Handle different verification scenarios
     if hub_mode == "subscribe":
-        # In production, verify the token matches your configured value
-        # For now, accepting any verification
-        logger.info("Webhook verification successful")
+        # Facebook/Meta webhook verification
+        logger.info("Webhook verification successful (Facebook/Meta style)")
         return PlainTextResponse(hub_challenge or "")
     
-    logger.warning("Invalid webhook verification request")
-    raise HTTPException(status_code=400, detail="Invalid verification request") 
+    # For Twilio or simple GET requests, return basic verification response
+    logger.info("Webhook verification successful (basic)")
+    return {
+        "status": "verified",
+        "service": "TazaTicket Webhook",
+        "message": "Webhook endpoint is active and ready to receive messages"
+    } 

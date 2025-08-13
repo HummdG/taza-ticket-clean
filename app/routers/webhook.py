@@ -16,6 +16,50 @@ logger = get_logger(__name__)
 router = APIRouter()
 
 
+@router.get("/")
+async def webhook_verification(request: Request):
+    """
+    Webhook verification endpoint at /webhook
+    This handles Twilio webhook verification requests
+    """
+    # Call the existing WhatsApp verification handler
+    return await whatsapp_webhook_verification(request)
+
+
+@router.post("/")
+async def webhook_root_post(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    MessageSid: str = Form(...),
+    AccountSid: str = Form(...),
+    From: str = Form(...),
+    To: str = Form(...),
+    Body: Optional[str] = Form(None),
+    MediaUrl0: Optional[str] = Form(None),
+    MediaContentType0: Optional[str] = Form(None),
+    NumMedia: str = Form("0"),
+    x_twilio_signature: Optional[str] = Header(None, alias="X-Twilio-Signature")
+):
+    """
+    Main webhook endpoint for Twilio WhatsApp messages at /webhook
+    This is the endpoint Twilio is configured to call
+    """
+    # Call the existing WhatsApp webhook handler
+    return await whatsapp_webhook(
+        request=request,
+        background_tasks=background_tasks,
+        MessageSid=MessageSid,
+        AccountSid=AccountSid,
+        From=From,
+        To=To,
+        Body=Body,
+        MediaUrl0=MediaUrl0,
+        MediaContentType0=MediaContentType0,
+        NumMedia=NumMedia,
+        x_twilio_signature=x_twilio_signature
+    )
+
+
 @router.post("/whatsapp")
 async def whatsapp_webhook(
     request: Request,

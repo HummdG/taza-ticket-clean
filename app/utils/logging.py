@@ -95,8 +95,18 @@ class LogContext:
             record = self.old_factory(*args, **kwargs)
             for key, value in self.context.items():
                 try:
-                    # Only set if attribute doesn't exist or is None
-                    if not hasattr(record, key) or getattr(record, key) is None:
+                    # Check if attribute already exists
+                    if hasattr(record, key):
+                        existing_value = getattr(record, key)
+                        if existing_value is None:
+                            # Only set if existing value is None
+                            setattr(record, key, value)
+                        elif existing_value == value:
+                            # Same value, no need to set again
+                            continue
+                        # If different value exists, skip to avoid overwrite error
+                    else:
+                        # Attribute doesn't exist, safe to set
                         setattr(record, key, value)
                 except (AttributeError, TypeError):
                     # If we can't set the attribute, skip it silently

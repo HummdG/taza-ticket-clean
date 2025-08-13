@@ -46,7 +46,7 @@ class S3MediaService:
         file_extension: str = "mp3"
     ) -> str:
         """
-        Upload audio data to S3 and return public URL
+        Upload audio data to S3 and return a presigned URL for public access
         
         Args:
             audio_data: Audio file bytes
@@ -55,23 +55,21 @@ class S3MediaService:
             file_extension: File extension for the audio
             
         Returns:
-            Public URL of the uploaded audio file
+            Time-limited presigned URL of the uploaded audio file
         """
         
+        s3_key = self._generate_audio_key(user_id, file_extension)
         try:
-            # Generate unique key
-            s3_key = self._generate_audio_key(user_id, file_extension)
-            
+            # Log intent
             logger.info(f"Uploading audio to S3: {s3_key}, size: {len(audio_data)} bytes")
             
-            # Upload to S3 with public read permissions
+            # Upload to S3 without ACLs (BucketOwnerEnforced)
             self.s3_client.put_object(
                 Bucket=self.bucket_name,
                 Key=s3_key,
                 Body=audio_data,
                 ContentType=content_type,
-                ACL='public-read',  # Make file publicly accessible
-                CacheControl='max-age=86400',  # Cache for 24 hours
+                CacheControl='max-age=86400',
                 Metadata={
                     'user_id': user_id,
                     'upload_time': datetime.utcnow().isoformat(),
@@ -79,12 +77,16 @@ class S3MediaService:
                 }
             )
             
-            # Generate public URL
-            public_url = f"https://{self.bucket_name}.s3.{settings.aws_region}.amazonaws.com/{s3_key}"
+            # Generate a presigned GET URL so Twilio can fetch it
+            presigned_url = self.s3_client.generate_presigned_url(
+                'get_object',
+                Params={'Bucket': self.bucket_name, 'Key': s3_key},
+                ExpiresIn=24 * 60 * 60  # 24 hours
+            )
             
-            logger.info(f"Successfully uploaded audio to S3: {public_url}")
+            logger.info(f"Successfully uploaded audio to S3 (presigned): {s3_key}")
             
-            return public_url
+            return presigned_url
             
         except ClientError as e:
             error_msg = f"Failed to upload audio to S3: {str(e)}"
@@ -100,7 +102,7 @@ class S3MediaService:
         Download audio file from S3 URL
         
         Args:
-            s3_url: Public S3 URL of the audio file
+            s3_url: Public S3 URL of the audio file (can be presigned)
             
         Returns:
             Audio file bytes
@@ -108,13 +110,14 @@ class S3MediaService:
         
         try:
             # Extract S3 key from URL
-            # Expected format: https://bucket.s3.region.amazonaws.com/key
+            # Expected formats include public and presigned URLs
             if not s3_url.startswith(f"https://{self.bucket_name}.s3."):
                 raise S3Error(f"Invalid S3 URL format: {s3_url}")
             
-            # Extract key from URL
+            # Extract key from URL and strip query params if present
             url_parts = s3_url.split('/')
-            s3_key = '/'.join(url_parts[3:])  # Everything after the domain
+            s3_key_with_query = '/'.join(url_parts[3:])  # Everything after the domain
+            s3_key = s3_key_with_query.split('?')[0]
             
             logger.info(f"Downloading audio from S3: {s3_key}")
             
@@ -144,7 +147,7 @@ class S3MediaService:
         Delete audio file from S3
         
         Args:
-            s3_url: Public S3 URL of the audio file to delete
+            s3_url: Public S3 URL of the audio file to delete (can be presigned)
         """
         
         try:
@@ -153,7 +156,8 @@ class S3MediaService:
                 raise S3Error(f"Invalid S3 URL format: {s3_url}")
             
             url_parts = s3_url.split('/')
-            s3_key = '/'.join(url_parts[3:])
+            s3_key_with_query = '/'.join(url_parts[3:])
+            s3_key = s3_key_with_query.split('?')[0]
             
             logger.info(f"Deleting audio from S3: {s3_key}")
             
@@ -277,8 +281,7 @@ class S3MediaService:
                 Params={
                     'Bucket': self.bucket_name,
                     'Key': s3_key,
-                    'ContentType': content_type,
-                    'ACL': 'public-read'
+                    'ContentType': content_type
                 },
                 ExpiresIn=expiration
             )

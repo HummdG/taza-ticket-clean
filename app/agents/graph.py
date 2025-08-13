@@ -441,10 +441,11 @@ class FlightAgentGraph:
         # Check if we have minimum required information
         missing_slots = []
         
-        if not slots.from_city or not slots.from_iata_codes:
+        # Allow progressing if we have IATA codes even if city names are missing
+        if not slots.from_iata_codes:
             missing_slots.append("origin city")
         
-        if not slots.to_city or not slots.to_iata_codes:
+        if not slots.to_iata_codes:
             missing_slots.append("destination city")
         
         if not slots.date:

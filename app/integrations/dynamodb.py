@@ -117,6 +117,21 @@ class DynamoDBRepository:
         try:
             logger.info(f"Retrieving conversation for user: {user_id}")
             
+            # First try to read a stable 'CURRENT' record (if present)
+            try:
+                current_item_resp = self.table.get_item(
+                    Key={'user_id': user_id, 'sort_key': 'CURRENT'},
+                    ConsistentRead=True
+                )
+                current_item = current_item_resp.get('Item')
+                if current_item:
+                    conversation_data = self._deserialize_conversation_data(current_item)
+                    logger.info(f"Retrieved conversation for user: {user_id}, {len(conversation_data.messages)} messages")
+                    return conversation_data
+            except Exception:
+                # Fall back to query
+                pass
+            
             # Query for the latest conversation entry for this user
             response = self.table.query(
                 KeyConditionExpression=Key('user_id').eq(user_id),
@@ -156,12 +171,17 @@ class DynamoDBRepository:
             # Serialize for DynamoDB
             item = self._serialize_conversation_data(conversation_data)
             
-            # Add DynamoDB keys to match table schema
+            # Add DynamoDB keys to match table schema (versioned record)
             item['user_id'] = conversation_data.user_id  # Partition key
             item['sort_key'] = conversation_data.updated_at.isoformat()  # Sort key
             
-            # Save to DynamoDB
+            # Save versioned record
             self.table.put_item(Item=item)
+            
+            # Also save/overwrite a stable 'CURRENT' pointer for fast reads
+            current_item = dict(item)
+            current_item['sort_key'] = 'CURRENT'
+            self.table.put_item(Item=current_item)
             
             logger.info(f"Saved conversation for user: {conversation_data.user_id}")
             
@@ -368,8 +388,8 @@ class DynamoDBRepository:
                 for item in items:
                     batch.delete_item(
                         Key={
-                            'PK': item['PK'],
-                            'SK': item['SK']
+                            'user_id': item['user_id'],
+                            'sort_key': item['sort_key']
                         }
                     )
             
